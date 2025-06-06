@@ -22,9 +22,9 @@ class Generator(metaclass=abc.ABCMeta):
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
-    def __call__(self, batch_size) -> TensorDict:
+    def __call__(self, batch_size,phase="train") -> TensorDict:
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
-        return self._generate(batch_size)
+        return self._generate(batch_size,phase)
 
     @abc.abstractmethod
     def _generate(self, batch_size, **kwargs) -> TensorDict:

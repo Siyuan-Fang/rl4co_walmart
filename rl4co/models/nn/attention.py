@@ -301,6 +301,8 @@ class PointerAttention(nn.Module):
         ) / math.sqrt(glimpse.size(-1))
 
         if self.check_nan:
+            assert not torch.isnan(glimpse).any(), "glimpse contains NaNs"
+            assert not torch.isnan(logit_key).any(), "logit_key contains NaNs"
             assert not torch.isnan(logits).any(), "Logits contain NaNs"
 
         return logits
@@ -551,6 +553,8 @@ class PolyNetAttention(PointerAttention):
         ) / math.sqrt(glimpse.size(-1))
 
         if self.check_nan:
+            assert not torch.isnan(glimpse).any(), "glimpse contains NaNs"
+            assert not torch.isnan(logit_key).any(), "logit_key contains NaNs"
             assert not torch.isnan(logits).any(), "Logits contain NaNs"
 
         return logits

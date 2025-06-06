@@ -37,6 +37,7 @@ def env_context_embedding(env_name: str, config: dict) -> nn.Module:
         "shpp": TSPContext,
         "flp": FLPContext,
         "mcp": MCPContext,
+        "wal": WALContext,
     }
 
     if env_name not in embedding_registry:
@@ -445,4 +446,96 @@ class MCPContext(EnvContext):
             membership_weighted, dim=-1
         )  # (batch_size, n_sets)
         context_embedding = (membership_weighted.unsqueeze(-1) * embeddings).sum(1)
+        return self.project_context(context_embedding)
+
+
+class WALContext(EnvContext):
+    """Context embedding for the Walmart Location Problem (WAL).
+    Project the following to the embedding space:
+        - revenue improvement potential for each location
+        - based on precomputed WAL features and current store selection state
+    """
+
+    def __init__(self, embed_dim: int, chunk_size: int = 32):
+        super(WALContext, self).__init__(embed_dim=embed_dim)
+        self.embed_dim = embed_dim
+        self.chunk_size = chunk_size  # Configurable chunk size for memory efficiency
+        self.project_context = nn.Linear(embed_dim, embed_dim, bias=True)
+        # WAL-specific parameters (matching the environment)
+        self.lambda_g, self.lambda_f, self.tau, self.miu_nu_other = 1.938, 1.912, 3.5, 0.19
+
+    def forward(self, embeddings, td):
+        """
+        Compute context embedding for WAL problem based on COMPLETE reward improvement potential.
+        Includes revenue, delivery costs, fixed costs, labor costs, and land costs.
+        Similar to FLPContext but focused on full reward improvement rather than just revenue improvement.
+        Memory-efficient implementation using chunked processing.
+        """
+        chosen_count = td["chosen_count"]  # [batch, n_points]
+        batch_size, n_points = chosen_count.shape
+        
+        # Check if WAL features are present in td, if not they should have been computed in reset
+        if "u_lj_reg" not in td:
+            raise RuntimeError("WAL features not found in TensorDict. Make sure the environment computes them during reset.")
+        
+        # Get WAL features (could be sparse or dense depending on device compatibility)
+        u_lj_reg_input = td["u_lj_reg"]    # [batch, N, block_num] - could be sparse or dense
+        u_lj_food_input = td["u_lj_food"]  # [batch, N, block_num] - could be sparse or dense
+        u0 = td["u0"]                # [batch, block_num]
+        pop = td["pop"]              # [batch, block_num, 1]
+        delivery_distances_reg_set = td["delivery_distances_reg_set"]  # [batch, N, 1]
+        delivery_distances_food_set = td["delivery_distances_food_set"]  # [batch, N, 1]
+        fixed_cost_point = td["fixed_cost_point"]  # [batch, 1, N]
+        
+        # Convert to dense if sparse for computation
+        if hasattr(u_lj_reg_input, 'is_sparse') and u_lj_reg_input.is_sparse:
+            u_lj_reg = u_lj_reg_input.to_dense()
+        else:
+            u_lj_reg = u_lj_reg_input
+            
+        if hasattr(u_lj_food_input, 'is_sparse') and u_lj_food_input.is_sparse:
+            u_lj_food = u_lj_food_input.to_dense()
+        else:
+            u_lj_food = u_lj_food_input
+        
+        # Calculate current COMPLETE reward (baseline) - including ALL costs
+        regular = (chosen_count >= 1).float()  # [batch, n_points]
+        food = (chosen_count >= 2).float()     # [batch, n_points]
+
+        regular_camdidate = 1 - regular
+        food_camdidate = regular - food
+
+        diag_regular = torch.diag_embed(regular_camdidate)
+        diag_food = torch.diag_embed(food_camdidate)
+
+        u_reg = torch.bmm(u_lj_reg.transpose(1, 2), diag_regular)
+        P_reg = u0.unsqueeze(-1) + u_reg + 1e-8   # Ensure u0 is dense
+        revenue_g_candidate = torch.sum(pop * (u_reg / P_reg) * self.lambda_g, dim=1).squeeze(1).view(batch_size, n_points)
+        
+        u_food = torch.bmm(u_lj_food.transpose(1, 2), diag_food)
+        P_food = u0.unsqueeze(-1) + u_food + 1e-8
+        revenue_f_candidate = torch.sum(pop * (u_food / P_food) * self.lambda_f, dim=1).squeeze(1).view(batch_size, n_points)
+
+        # Calculate costs
+        delivery_cost_reg_candidate = self.tau * (regular_camdidate * delivery_distances_reg_set.squeeze(-1)) / 1000
+        fixed_cost_reg_candidate = regular_camdidate * fixed_cost_point.squeeze(1).view(batch_size, n_points)
+        delivery_cost_food_candidate = self.tau * (food_camdidate * delivery_distances_food_set.squeeze(-1)) / 1000
+        fixed_cost_food_candidate = food_camdidate * fixed_cost_point.squeeze(1).view(batch_size, n_points)
+        
+        revenue_combined_candidate = revenue_g_candidate + revenue_f_candidate
+        delivery_combined_candidate = delivery_cost_reg_candidate + delivery_cost_food_candidate
+        fixed_cost_combined_candidate = fixed_cost_reg_candidate + fixed_cost_food_candidate
+        
+        # Calculate labor and land costs
+        labor_cost_reg = 0.075 * revenue_combined_candidate
+        land_cost_reg = 0.005 * revenue_combined_candidate
+
+        advantage_candidate = revenue_combined_candidate * self.miu_nu_other - labor_cost_reg - land_cost_reg - delivery_combined_candidate - fixed_cost_combined_candidate
+        
+        reward_improve = torch.clamp(advantage_candidate, min=0) / 100.0
+        loc_best_soft = torch.softmax(reward_improve, dim=-1)  # [batch, n_points]
+
+        # Weighted combination of node embeddings (same as FLPContext)
+        context_embedding = (embeddings * loc_best_soft[..., None]).sum(-2)
+        
         return self.project_context(context_embedding)

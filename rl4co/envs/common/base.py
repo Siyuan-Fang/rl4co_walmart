@@ -132,12 +132,12 @@ class RL4COEnvBase(EnvBase, metaclass=abc.ABCMeta):
             # Since we simplify the syntax
             return self._torchrl_step(td)
 
-    def reset(self, td: Optional[TensorDict] = None, batch_size=None) -> TensorDict:
+    def reset(self, td: Optional[TensorDict] = None, batch_size=None, phase="train") -> TensorDict:
         """Reset function to call at the beginning of each episode"""
         if batch_size is None:
             batch_size = self.batch_size if td is None else td.batch_size
         if td is None or td.is_empty():
-            td = self.generator(batch_size=batch_size)
+            td = self.generator(batch_size=batch_size, phase=phase)
         batch_size = [batch_size] if isinstance(batch_size, int) else batch_size
         self.to(td.device)
         return super().reset(td, batch_size=batch_size)

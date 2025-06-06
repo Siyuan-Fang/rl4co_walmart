@@ -42,6 +42,7 @@ def env_init_embedding(env_name: str, config: dict) -> nn.Module:
         "shpp": TSPInitEmbedding,
         "flp": FLPInitEmbedding,
         "mcp": MCPInitEmbedding,
+        "wal": FLPInitEmbedding,
     }
 
     if env_name not in embedding_registry:

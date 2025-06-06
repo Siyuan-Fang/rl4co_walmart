@@ -36,7 +36,7 @@ class REINFORCE(RL4COLitModule):
         policy: nn.Module,
         baseline: REINFORCEBaseline | str = "rollout",
         baseline_kwargs: dict = {},
-        reward_scale: str = None,
+        reward_scale: str = "norm",
         **kwargs,
     ):
         super().__init__(env, policy, **kwargs)
@@ -89,7 +89,7 @@ class REINFORCE(RL4COLitModule):
         """
         # Extra: this is used for additional loss terms, e.g., REINFORCE baseline
         extra = batch.get("extra", None)
-        reward = reward if reward is not None else policy_out["reward"]
+        reward = -reward if reward is not None else -policy_out["reward"]
         log_likelihood = (
             log_likelihood if log_likelihood is not None else policy_out["log_likelihood"]
         )
@@ -102,7 +102,7 @@ class REINFORCE(RL4COLitModule):
         # Main loss function
         advantage = reward - bl_val  # advantage = reward - baseline
         advantage = self.advantage_scaler(advantage)
-        reinforce_loss = -(advantage * log_likelihood).mean()
+        reinforce_loss = (advantage * log_likelihood).mean()
         loss = reinforce_loss + bl_loss
         policy_out.update(
             {
