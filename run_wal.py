@@ -44,8 +44,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 env = WALEnv(generator_params=dict(
-    num_loc=730,  # Reduced from 50 for MPS compatibility  
-    to_choose=90,  # Reduced from 10 for MPS compatibility
+    num_loc=700,   
+    to_choose=80,  
     loc_sampler=True,
     memory_efficient="ultra",  # Use ultra-efficient mode
     device=device.type  # Force GPU-native generation to avoid CPU->GPU transfers
@@ -76,7 +76,12 @@ model = AttentionModel(env,
                            'cooldown': 2 
                        },
                        lr_scheduler_interval='epoch',  # update every epoch
-                       lr_scheduler_monitor='val/reward'  # monitor validation reward
+                       lr_scheduler_monitor='val/reward',  # monitor validation reward
+                       policy_kwargs={  
+                           "train_decode_type": "sampling",  
+                           "val_decode_type": "sampling",      
+                           "test_decode_type": "sampling",     
+                       }
                        )
 
 # Move model to device to ensure proper device management
@@ -95,7 +100,7 @@ try:
     print("✅ Policy moved to device")
     
     print("Testing policy forward pass...")
-    out = policy(td_init.clone(), env, phase="test", decode_type="greedy")#TODO：尝试在这里能搞好
+    out = policy(td_init.clone(), env, phase="test", decode_type="sampling")
     print(f"✅ Policy test successful: {out['reward'].shape}")
     
 except Exception as e:
@@ -126,7 +131,7 @@ gradient_monitor = GradientMonitor()
 # Callbacks list
 callbacks = [checkpoint_callback, rich_model_summary, learning_rate_monitor, gradient_monitor]
 
-logger = SwanLabLogger(project="rl4co",name="wal-am-dynamic")
+logger = SwanLabLogger(project="rl4co",name="wal-am-dynamic")# replace SwanLabLogger with WandbLogger if you prefer wandb
 ## Trainer
 trainer = RL4COTrainer(
     max_epochs=10,  # Reduced for testing dynamic computation
