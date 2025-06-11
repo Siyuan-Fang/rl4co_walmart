@@ -92,7 +92,7 @@ def test_trained_model_fast():
             color='gray',
             fillColor='lightgray',
             fillOpacity=0.6,
-            popup=f"位置 {idx}: ({row['lat']:.4f}, {row['lon']:.4f})"
+            popup=f"location {idx}: ({row['lat']:.4f}, {row['lon']:.4f})"
         ).add_to(m)
     
     # add the selected locations (using different colors based on the number of times they appear)
