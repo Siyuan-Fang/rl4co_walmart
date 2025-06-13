@@ -16,7 +16,7 @@ This project forked form [rl4co](https://github.com/ai4co/rl4co).
   <img src="https://github.com/Siyuan-Fang/rl4co_walmart/blob/main/image/reward_learning_curve.png?raw=true" alt="loss-curve" style="max-width: 60%;">
 </div>
 
-For training, 700 blocks of latitude and longitude are randomly sampled as the training dataset, and 80 locations are chosen for each iteration. The reward was still increasing when training was stopped, but the process was stoped because the results already demonstrated good performance in this environment and renting an A100 GPU is too expensive. 😂
+  For training, 700 blocks of latitude and longitude are randomly sampled as the training dataset, and 80 locations are chosen for each iteration. The reward was still increasing when I stopped the training, because the results already demonstrated good performance in this environment and renting an A100 GPU is too expensive. 😂
 <div align="center">
   <img src="https://raw.githubusercontent.com/Siyuan-Fang/rl4co_walmart/refs/heads/main/image/loss_learning_curve.png" alt="loss-curve" style="max-width: 60%;">
 </div>
@@ -45,7 +45,7 @@ Install the required packages:
 ```bash
 pip install -e.
 ```
-Train the model:
+Train the model(may cost 15h to achieve the performance as I showed, because the high dimension of location candidates significantly slows the training speed):
 ```bash
 python run_wal.py
 ```
