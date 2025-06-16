@@ -8,7 +8,7 @@ This project forked form [rl4co](https://github.com/ai4co/rl4co).
 
 ## Wal-Mart Problem
 
-- Based on [Holmes (2011)](https://example.com/paper-url) and [Huang and Yu (2024)](https://example.com/paper-url), the Walmart store location problem is a real-world, dynamic, and economically rich variant of the combinatorial location choice problem. While it shares similarities with the Facility Location Problem in selecting sites and considering distance-related costs, the Walmart problem is more intricate due to its dynamic nature, complex reward function (including cannibalization and multiple cost structures), and specific empirical context.
+- Based on [Holmes (2011)](https://example.com/paper-url) and [Huang and Yu (2024)](https://example.com/paper-url), the Walmart store location problem is a more real-world, dynamic, and economically rich variant of the combinatorial location choice problem. While it shares similarities with the Facility Location Problem in selecting sites and considering distance-related costs, the Walmart problem is more intricate due to its dynamic nature, complex reward function (including cannibalization and multiple cost structures), and specific empirical context.
 - The Walmart store location problem involves selecting locations from 730 candidates to open regular stores or upgrade existing ones to supercenters (by adding food stores) to maximize profits. In this case, 90 locations are selected from 730 candidates. When calculating profits, the model considers sales cannibalization effects, location characteristics, and delivery costs.
 
 ## Learning Curve
