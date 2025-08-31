@@ -41,21 +41,16 @@ class GradientMonitor(Callback):
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
 
 env = WALEnv(generator_params=dict(
     num_loc=700,   
     to_choose=80,  
     loc_sampler=True,
     memory_efficient="ultra",  # Use ultra-efficient mode
-    device=device.type  # Force GPU-native generation to avoid CPU->GPU transfers
+    device=device.type  
 ))
 
-# Ensure environment is on the correct device
 env = env.to(device)
-
-# Test dynamic feature computation
-print("Testing dynamic WAL feature computation...")
 
 
 # Model: default is AM with REINFORCE and greedy rollout baseline
@@ -84,29 +79,11 @@ model = AttentionModel(env,
                        }
                        )
 
-# Move model to device to ensure proper device management
+# Move to device
 model = model.to(device)
-print(f"✅ Model moved to device: {device}")
-
-# Ensure environment is synchronized with model device
 env = env.to(device)
-print(f"✅ Environment synchronized to device: {device}")
-
-## Test greedy rollout with untrained model and plot
-# Greedy rollouts over untrained policy
-print("\n🧪 Testing policy...")
-try:
-    policy = model.policy.to(device)
-    print("✅ Policy moved to device")
-    
-    print("Testing policy forward pass...")
-    out = policy(td_init.clone(), env, phase="test", decode_type="sampling")
-    print(f"✅ Policy test successful: {out['reward'].shape}")
-    
-except Exception as e:
-    print(f"❌ Error during policy test: {e}")
-    import traceback
-    traceback.print_exc()
+policy = model.policy.to(device)
+out = policy(td_init.clone(), env, phase="test", decode_type="sampling")
 
 #==============================================training==============================================
 ## Callbacks

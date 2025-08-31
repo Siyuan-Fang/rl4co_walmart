@@ -34,7 +34,7 @@ def haversine_torch(lat1, lon1, lat2, lon2):
     c = 2 * torch.arcsin(torch.sqrt(a))
     return R * c
 
-def haversine_torch_ultra_efficient(lat1, lon1, lat2, lon2, max_distance=30, chunk_size=500):
+def haversine_torch_ultra_efficient(lat1, lon1, lat2, lon2, max_distance=30, chunk_size=32):
     """
     Ultra memory-efficient version that returns only nearby blocks
     Returns: (distances, valid_indices) where distances are only for nearby blocks
@@ -102,57 +102,12 @@ def haversine_torch_ultra_efficient(lat1, lon1, lat2, lon2, max_distance=30, chu
         indices = torch.stack([batch_idx, point_idx, block_idx])
         
         # Try to create sparse tensor directly on target device
-        try:
-            sparse_distances = torch.sparse_coo_tensor(
-                indices, distances, (batch_size, N, M), device=device
-            ).coalesce()
-            # print(f"✅ Sparse tensor created directly on {device}")
-        except Exception as e:
-            print(f"⚠️  Warning: Direct sparse tensor creation failed on {device}, using CPU fallback. Error: {e}")
-            # Create sparse tensor on CPU first
-            indices_cpu = indices.cpu()
-            distances_cpu = distances.cpu()
-            sparse_distances = torch.sparse_coo_tensor(
-                indices_cpu, distances_cpu, (batch_size, N, M), device='cpu'
-            ).coalesce()
-            
-            # Move to target device
-            if device.type != 'cpu':
-                try:
-                    sparse_distances = sparse_distances.to(device)
-                    print(f"✅ Sparse tensor moved to {device}")
-                except Exception as e2:
-                    print(f"❌ Warning: Could not move sparse tensor to {device}. Error: {e2}")
-                    print("Falling back to dense tensor on target device...")
-                    # Convert to dense and move to device as fallback
-                    dense_tensor = sparse_distances.to_dense().to(device)
-                    return dense_tensor
+
+        sparse_distances = torch.sparse_coo_tensor(
+            indices, distances, (batch_size, N, M), device=device
+        ).coalesce()
         
         return sparse_distances
-    else:
-        # No valid distances found, return empty sparse tensor directly on target device
-        try:
-            indices = torch.zeros((3, 0), dtype=torch.long, device=device)
-            values = torch.zeros(0, device=device)
-            sparse_tensor = torch.sparse_coo_tensor(indices, values, (batch_size, N, M), device=device)
-            print(f"✅ Empty sparse tensor created directly on {device}")
-        except Exception as e:
-            print(f"⚠️  Warning: Direct empty sparse tensor creation failed on {device}, using CPU fallback. Error: {e}")
-            indices = torch.zeros((3, 0), dtype=torch.long, device='cpu')
-            values = torch.zeros(0, device='cpu')
-            sparse_tensor = torch.sparse_coo_tensor(indices, values, (batch_size, N, M), device='cpu')
-            
-            # Try to move to target device
-            if device.type != 'cpu':
-                try:
-                    sparse_tensor = sparse_tensor.to(device)
-                    print(f"✅ Empty sparse tensor moved to {device}")
-                except Exception as e2:
-                    print(f"❌ Warning: Could not move empty sparse tensor to {device}. Error: {e2}")
-                    # Return zero dense tensor as fallback
-                    return torch.zeros((batch_size, N, M), device=device)
-        
-        return sparse_tensor
 
 class GPUFriendlySampler:
     """Base class for samplers that support GPU-native tensor generation"""
@@ -191,51 +146,15 @@ class NYBlockSampler(GPUFriendlySampler):
 
 
 class WALGenerator(Generator):
-    """Data generator for the Facility Location Problem (FLP) with Walmart-specific optimizations.
+    """Data generator for the Facility Location Problem (FLP).
     
-    Memory-Efficient Dynamic Computation:
-    - Dataset generation only creates basic location data (locs, chosen, to_choose)
-    - WAL features (u_lj_reg, u_lj_food, etc.) are computed dynamically during environment reset
-    - This approach drastically reduces memory usage during dataset creation
-    
-    Memory Efficiency Comparison:
-    Original approach (all features precomputed):
-    - 10,000 batches × WAL features ≈ 50-100GB RAM
-    
-    New dynamic approach:
-    - 10,000 batches × basic data ≈ 1-5GB RAM  
-    - WAL features computed per batch during training ≈ 100-500MB per batch
-    
-    Memory Efficiency Modes (for WAL feature computation):
-    - "none": Original implementation, returns dense tensors (~100GB for large datasets)
-    - "chunked": Process blocks in chunks with distance filtering, returns sparse tensors (recommended, ~10-20GB)  
-    - "ultra": Sparse tensor implementation throughout, returns sparse tensors (lowest memory usage, ~5-10GB)
-    
-    Note: WAL features are computed on-demand in the environment's reset() method.
-    When memory_efficient != "none", u_lj_reg and u_lj_food are returned as sparse tensors
-    to save memory. They are automatically converted to dense tensors in _get_reward() and WALContext
-    when needed for computation.
-    
-    Example usage:
-        # Memory-efficient training (recommended)
-        env = WALEnv(generator_params=dict(memory_efficient="ultra"))
-        
-        # Even more memory-efficient for very large datasets
-        env = WALEnv(generator_params=dict(memory_efficient="ultra"))
-        
-        # Original approach (not recommended for large datasets)
-        env = WALEnv(generator_params=dict(memory_efficient="none"))
-
-        # GPU-native generation (avoids CPU-GPU transfers)
-        env = WALEnv(generator_params=dict(device="cuda"))
-
     Args:
         num_loc: number of locations in the FLP
         min_loc: minimum value for the location coordinates
         max_loc: maximum value for the location coordinates
         loc_distribution: distribution for the location coordinates
         memory_efficient: Memory optimization level ("none", "chunked", "ultra")
-        device: Device to generate tensors on ("cpu", "cuda", etc.). If None, uses environment device
+        device: Device to generate tensors on ("cuda", not recommended using cpu or mps).
 
     Returns:
         A TensorDict with basic data only (WAL features computed dynamically):
@@ -244,8 +163,8 @@ class WALGenerator(Generator):
             to_choose [batch_size, 1]: number of locations to choose in the FLP
             
         WAL features added dynamically during environment reset:
-            u_lj_reg [batch_size, num_loc, block_num]: utility matrix for regular stores (sparse when memory_efficient != "none")
-            u_lj_food [batch_size, num_loc, block_num]: utility matrix for food stores (sparse when memory_efficient != "none")
+            u_lj_reg [batch_size, num_loc, block_num]: utility matrix for regular stores 
+            u_lj_food [batch_size, num_loc, block_num]: utility matrix for food stores 
             u0 [batch_size, block_num]: baseline utility
             delivery_distances_reg_set [batch_size, num_loc, 1]: delivery distances for regular stores
             delivery_distances_food_set [batch_size, num_loc, 1]: delivery distances for food stores
@@ -294,11 +213,11 @@ class WALGenerator(Generator):
         self.FoodDC_lat = torch.tensor(self.FoodDC_NY[:, 0], dtype=torch.float32)
         self.FoodDC_lon = torch.tensor(self.FoodDC_NY[:, 1], dtype=torch.float32)
         
-        # 静态人口相关变量
+        # static population related variables
         self.Popden = torch.clamp(torch.tensor(self.block_NY[:, 2] / 1000, dtype=torch.float32), min=1).unsqueeze(1)  # [block_num, 1]
         self.pop = torch.tensor(self.block_NY[:, 1] / 1000, dtype=torch.float32).unsqueeze(1)  # [block_num, 1]
         
-        # u0 计算
+        # u0 calculation
         alpha0, alpha1, alpha2 = -7.834, 1.861, -0.059
         alpha_pci, alpha_black, alpha_young, alpha_old = 0.013, 0.297, 1.132, 0.465
         pci = torch.clamp(torch.tensor(self.block_NY[:, 7] / 1000, dtype=torch.float32), min=5).unsqueeze(1)
@@ -352,10 +271,6 @@ class WALGenerator(Generator):
             # Pass device to sampler for GPU-native sampling
             if hasattr(self.loc_sampler, 'sample') and 'device' in self.loc_sampler.sample.__code__.co_varnames:
                 locs = self.loc_sampler.sample((*batch_size, self.num_loc, 2), device=target_device)
-            else:
-                locs = self.loc_sampler.sample((*batch_size, self.num_loc, 2))
-                if target_device.type != 'cpu':
-                    locs = locs.to(target_device)
                 
         return TensorDict(
             {
@@ -425,37 +340,10 @@ class WALGenerator(Generator):
             u_lj_reg_values = torch.exp((-h_values) * values + gamma) * mask_25
             u_lj_food_values = torch.exp((-h_values) * values + gamma) * mask_25
             
-            # Create sparse tensors for u_lj - try to create directly on target device, fallback to CPU if needed
-            try:
-                # Try to create sparse tensors directly on target device first
-                u_lj_reg_sparse = torch.sparse_coo_tensor(indices, u_lj_reg_values, sparse_distances.shape, device=device)
-                u_lj_food_sparse = torch.sparse_coo_tensor(indices, u_lj_food_values, sparse_distances.shape, device=device)
-                # print(f"✅ u_lj sparse tensors created directly on {device}")
-            except Exception as e:
-                print(f"⚠️  Warning: Direct sparse tensor creation failed on {device}, using CPU fallback. Error: {e}")
-                # Always create sparse tensors on CPU first for MPS compatibility
-                indices_cpu = indices.cpu()
-                u_lj_reg_values_cpu = u_lj_reg_values.cpu()
-                u_lj_food_values_cpu = u_lj_food_values.cpu()
-                
-                # Create sparse tensors on CPU
-                u_lj_reg_sparse_cpu = torch.sparse_coo_tensor(indices_cpu, u_lj_reg_values_cpu, sparse_distances.shape, device='cpu')
-                u_lj_food_sparse_cpu = torch.sparse_coo_tensor(indices_cpu, u_lj_food_values_cpu, sparse_distances.shape, device='cpu')
-                
-                # Try to move to target device
-                try:
-                    u_lj_reg_sparse = u_lj_reg_sparse_cpu.to(device)
-                    u_lj_food_sparse = u_lj_food_sparse_cpu.to(device)
-                    print(f"✅ u_lj sparse tensors moved to {device}")
-                except Exception as e2:
-                    print(f"❌ Warning: Sparse tensor creation failed on {device}, using dense tensors. Error: {e2}")
-                    # Convert sparse_distances to dense and use regular computation
-                    distances_dense = sparse_distances.to_dense() if hasattr(sparse_distances, 'to_dense') else sparse_distances
-                    mask_25_dense = distances_dense < 25
-                    u_lj_reg_sparse = torch.exp((-h_Popden)[None, None, :] * distances_dense + gamma) * mask_25_dense
-                    u_lj_food_sparse = torch.exp((-h_Popden)[None, None, :] * distances_dense + gamma) * mask_25_dense
-            
-            # FIXED: Use efficient scatter operation instead of loop for fixed_cost_point
+            # Create sparse tensors for u_lj
+            u_lj_reg_sparse = torch.sparse_coo_tensor(indices, u_lj_reg_values, sparse_distances.shape, device=device)
+            u_lj_food_sparse = torch.sparse_coo_tensor(indices, u_lj_food_values, sparse_distances.shape, device=device)           
+
             # Create a mask for 30-mile distances
             indices_30 = indices[:, mask_30]  # [3, nnz_30]
             
@@ -476,18 +364,6 @@ class WALGenerator(Generator):
                 # Use scatter_add to accumulate population
                 pop_store_flat.scatter_add_(0, linear_indices.unsqueeze(1), pop_values_30.unsqueeze(1))
                 pop_store = pop_store_flat.view(batch_size_val, num_locs_actual, 1)
-        else:
-            # Fallback to dense computation when sparse tensor creation failed
-            print(f"Warning: Working with dense tensors due to sparse tensor limitations on {device}")
-            distances_dense = sparse_distances
-            mask_25 = distances_dense < 25
-            mask_30 = distances_dense < 30
-            
-            u_lj_reg_sparse = torch.exp((-h_Popden)[None, None, :] * distances_dense + gamma) * mask_25
-            u_lj_food_sparse = torch.exp((-h_Popden)[None, None, :] * distances_dense + gamma) * mask_25
-            
-            # Calculate pop_store using dense operations
-            pop_store = torch.sum(pop[None, :, :] * mask_30.transpose(1, 2), dim=1, keepdim=True)
         
         pop_store = torch.clamp(pop_store, min=1e-6)
         omega1, omega2 = 1.5244015610139994, -0.13384045894730612
@@ -518,11 +394,7 @@ class WALGenerator(Generator):
         # Ensure all static data is on the same device as locs to avoid transfers
         self._move_static_data_to_device(device)
         
-        # On MPS, use simple "none" mode to avoid dimension and sparse tensor issues
-        if device.type == 'mps':
-            print("⚠️  Info: MPS detected - using 'none' mode to avoid compatibility issues")
-            return self._precompute_wal_features(locs, batch_size)
-        elif self.memory_efficient == "ultra":
+        if self.memory_efficient == "ultra":
             return self._precompute_wal_features_ultra_efficient(locs, batch_size)
         else:
             return self._precompute_wal_features(locs, batch_size)

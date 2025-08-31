@@ -31,18 +31,16 @@ def test_trained_model_fast():
         baseline="rollout",
         train_data_size=100,    # small data set
         val_data_size=50,       # small data set  
-        test_data_size=20,     # 🔥 set small test data set!
+        test_data_size=20,     # set small test data set
         optimizer_kwargs={'lr': 1e-4}
     )
     
-    # load weights from checkpoint
-    print("loading model weights from checkpoint...")
     # load state dict instead of the whole model
     checkpoint = torch.load("checkpoints/download-v3/last-v1.ckpt", map_location=device, weights_only=False)
     model_for_loading.load_state_dict(checkpoint['state_dict'], strict=False)
     model_for_loading = model_for_loading.to(device)
     model_for_loading.eval()
-    print("✅ model weights loaded successfully!")
+
     # create test data
     walmart_test_batch = walmart_env.reset(batch_size=[10],phase="test").to(device)
     
@@ -72,7 +70,7 @@ def test_trained_model_fast():
     print(f"count of each location: {action_counts}")
     
     # create map visualization
-    print("\n🗺️ creating map visualization...")
+    print("\n creating map visualization...")
     
     # calculate the center of the map
     map_center = [walmart_df['lat'].mean(), walmart_df['lon'].mean()]
@@ -148,7 +146,7 @@ def test_trained_model_fast():
     print(f"✅ map saved as: {map_filename}")
     
     # output the detailed information of the selected locations
-    print(f"\n📍 the detailed information of the selected locations:")
+    print(f"\n the detailed information of the selected locations:")
     for location_idx, count in sorted(action_counts.items()):
         if location_idx < len(walmart_df):
             lat = walmart_df.iloc[location_idx]['lat']
